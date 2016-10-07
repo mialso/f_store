@@ -3,24 +3,36 @@
 
 #include <stdint.h>
 
-struct F_instance {
-	char *name;
-	char *key;
+#define NAME_SIZE 32
+#define KEY_SIZE 32
+struct F_item {
+	char name[NAME_SIZE]; 	// 4 x 64 (8 x 8)
+	char key[KEY_SIZE];	// 4 x 64 (8 x 8)
 	uint64_t id;
+	uint64_t role;
+};
+struct F_range {
+	struct F_range *next;
+	uint16_t start;
+	uint16_t end;
 };
 struct F_map {
-	uint64_t *data;
+	uint16_t *data;
 	uint64_t size;
 };
 struct F_store {
-	struct F_map map;
 	uint64_t size;
-	void (*get_instance)(struct F_instance *item);
-	void (*update_instance)(struct F_instance *item);
-	void (*add_instance)(struct F_instance *item);
+	char name[8];
+	struct F_item *data;
+	struct F_range *free;
 };
 
-struct F_instance *init_item();
+struct F_item *init_item();
 int init_store(char *name, struct F_store *store);
+uint64_t add_instance(struct F_store *store, struct F_item *item);
+struct F_item *get_item(struct F_store *store, uint64_t num);
+
+uint64_t update_item(struct F_store *store, struct F_item *item);
+uint64_t delete_item(struct F_store *store, uint64_t num);
 
 #endif
