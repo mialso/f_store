@@ -45,15 +45,7 @@ int main(void)
 		printf("size = %zu test [FAIL]\n", store.size);
 	}
 	// check listing
-		print_free_list(&store);
-		/*
-	if (0 == store.free->start && STOR_SIZE == (store.free->end+1)) {
-		printf("store free [%d,%d] init test [OK]\n", store.free->start, store.free->end);
-	} else {
-		printf("store free [%d,%d] init test [FAIL]\n", store.free->start, store.free->end);
-	}
-	*/
-	
+	print_free_list(&store);
 	// test store operations
 	struct F_item instance;
 	strcpy(instance.name, "valid name");
@@ -67,6 +59,7 @@ int main(void)
 		instance.id = new_item_id;
 	}
 	verify_item(&store, &instance, new_item_id);
+	print_free_list(&store);
 	strcpy(instance.name, "not valid very long name,aaaaa5aaaaa5aaaaa5aaaaa5");
 	strcpy(instance.key, "not valid very logn key,aaaaa5aaaaa5aaaaa5aaaaa5");
 	instance.role = 2;
@@ -83,7 +76,27 @@ int main(void)
 
 	delete_item(&store, 4);
 	print_free_list(&store);
+
+	memset(instance.name, 0, 32);
+	memset(instance.key, 0, 32);
+	strcpy(instance.name, "new valid name");
+	strcpy(instance.key, "new valid key");
+	instance.role = 1;
+	instance.id = 2;
+	update_item(&store, &instance, 2);
+	verify_item(&store, &instance, 2);
 	
+	memset(instance.name, 0, 32);
+	memset(instance.key, 0, 32);
+	strcpy(instance.name, "another valid name");
+	strcpy(instance.key, "another valid key");
+	instance.role = 1;
+	instance.id = 1343422;
+	print_item(&instance);
+	add_instance(&store, &instance);
+
+	delete_item(&store, 8);
+	print_free_list(&store);
 
 	return 0;
 }

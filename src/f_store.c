@@ -12,9 +12,13 @@
 #define FS_SIZE 80000
 
 static inline int init_store_data(struct F_store *store, void *data);
-static int free_add(struct F_store *store, uint16_t num);
+
+static int add_free_pointer(struct F_store *store, uint16_t num);
 static int init_free_pointer(struct F_store *store);
 static void remove_free_pointer(struct F_store *store, uint64_t num);
+
+static inline void copy_item_data(struct F_item *to, struct F_item *from);
+static inline int validate_item_fail(struct F_item *item);
 /*
  * purpose: to init store with mapped file to memory
  * + map memory to file
@@ -23,7 +27,6 @@ static void remove_free_pointer(struct F_store *store, uint64_t num);
 int init_store(char *name, struct F_store *store)
 {
 	struct stat sb;
-	//off_t len;
 	char *p;
 	int fd;
 
@@ -78,9 +81,11 @@ int init_store_data(struct F_store *store, void *data)
 /*
  * purpose: add free pointer to free list
  */
-int free_add(struct F_store *store, uint16_t num)
+int add_free_pointer(struct F_store *store, uint16_t num)
 {
 	struct F_range *range = store->free;
+	struct F_range *prev_range = NULL;
+	struct F_range *next_range = NULL;
 	if (NULL == range) {
 		range = calloc(1, sizeof(struct F_range));
 		if (NULL == range) {
@@ -96,6 +101,7 @@ int free_add(struct F_store *store, uint16_t num)
 			if (1 == (range->start - num)) {
 				--range->start;
 			} else {
+				next_range = range;
 				range = calloc(1, sizeof(struct F_range));
 				if (NULL == range) {
 					fprintf(stderr, "free add memory error\n");
@@ -103,8 +109,12 @@ int free_add(struct F_store *store, uint16_t num)
 				}
 				range->start = num;
 				range->end = num;
-				range->next = store->free;
-				store->free = range;
+				range->next = next_range;
+				if (store->free == next_range) {
+					store->free = range;
+				} else {
+					prev_range->next = range;
+				}
 			}
 			return 0;
 		} else if (num > range->end) {
@@ -112,15 +122,16 @@ int free_add(struct F_store *store, uint16_t num)
 				++range->end;
 				return 0;
 			} else {
+				prev_range = range;
 				range = range->next;
 			}
 		} else {
-			fprintf(stderr, "free add loop error, num = %d;\n", num);
+			fprintf(stderr, "free add loop error: already free, num = %d;\n", num);
 			return 1;
 		}
 	}
 	// no way to get here
-	fprintf(stderr, "im on a wrong way\n");
+	fprintf(stderr, "im on a wrong way: num =%lu\n", (uint64_t) num);
 	return 2;
 }
 /*
@@ -135,13 +146,15 @@ int init_free_pointer(struct F_store *store)
 		if ((store->data+counter)->id) {
 			continue;
 		}
-		res = free_add(store, counter);
+		res = add_free_pointer(store, counter);
 		if (res) return res;
 	}
 	return res;
 }	
 /*
  * pupose: to remove pointer from free list
+ * the logic is to remove only the firts free pointer,
+ * because only first would be inserted
  */
 void remove_free_pointer(struct F_store *store, uint64_t num)
 {
@@ -156,33 +169,46 @@ void remove_free_pointer(struct F_store *store, uint64_t num)
 		free(range);
 		return;
 	}
-	--range->start;
+	++range->start;
 }
 /*
  * purpose: to add instance to store
  */
 uint64_t add_instance(struct F_store *store, struct F_item *item)
 {
-	if ('\0' != item->name[NAME_SIZE-1] || '\0' != item->key[KEY_SIZE-1]) {
-		fprintf(stderr, "not valid instance provided to <%s> store\n", store->name);
+	if (validate_item_fail(item)) {
 		return 0;
 	}
 	uint64_t item_place = store->free->start;
 	struct F_item *new_item = store->data+item_place;
-	strncpy(new_item->name, item->name, NAME_SIZE-1);
-	strncpy(new_item->key, item->key, KEY_SIZE-1);
-	new_item->id = item_place+1;
-	new_item->role = item->role;
+	copy_item_data(new_item, item);
 	remove_free_pointer(store, item_place);
-	return new_item->id;
+	return item_place+1;
 }
-struct F_item *get_item(struct F_store *store, uint64_t num)
+int validate_item_fail(struct F_item *item)
 {
-	if (0 == num  || FS_SIZE < num) {
-		printf("get_item: [%zu] is out of store capacity\n", num);
+	if ('\0' != item->name[NAME_SIZE-1] || '\0' != item->key[KEY_SIZE-1]) {
+		fprintf(stderr, "not valid item {%zu} provided\n", item->id);
+		return 1;
+	}
+	return 0;
+}
+void copy_item_data(struct F_item *to, struct F_item *from)
+{
+	strncpy(to->name, from->name, NAME_SIZE-1);
+	strncpy(to->key, from->key, KEY_SIZE-1);
+	to->id = from->id;
+	to->role = from->role;
+}
+struct F_item *get_item(struct F_store *store, uint64_t s_id)
+{
+	uint16_t num = 0;
+	if (0 == s_id  || FS_SIZE < s_id) {
+		printf("get_item: [%zu] is out of store capacity\n", s_id);
 		return NULL;
 	}
-	struct F_item *item = store->data+num-1;
+	num = s_id-1;
+	struct F_item *item = store->data+num;
 	if (item->id) {
 		return item;
 	} else {
@@ -192,16 +218,30 @@ struct F_item *get_item(struct F_store *store, uint64_t num)
 /*
  * purpose: to update item
  */
-uint64_t update_item(struct F_store *store, struct F_item *item)
+uint64_t update_item(struct F_store *store, struct F_item *item, uint64_t s_id)
 {
-	return 1;
+	if (validate_item_fail(item)) {
+		return 1;
+	}
+	struct F_item *store_item = get_item(store, s_id);
+	if (NULL == store_item) {
+		fprintf(stderr, "update_item(): item [%zu] not found\n", s_id);
+		return 2;
+	}
+	copy_item_data(store_item, item);
+	return 0;
 }
 /*
- * purpose: to update item
+ * purpose: to delete item
  */
-uint64_t delete_item(struct F_store *store, uint64_t num)
+uint64_t delete_item(struct F_store *store, uint64_t s_id)
 {
-	memset(store->data+num-1, 0, sizeof(struct F_item));
-	free_add(store, num-1);
-	return 1;
+	if (store->size < s_id || 0 == s_id) {
+		fprintf(stderr, "delete item: wrong s_id [%lu] provided\n", s_id);
+		return 255;
+	}
+	uint16_t num = s_id-1;
+	memset(store->data+num, 0, sizeof(struct F_item));
+	add_free_pointer(store, num);
+	return 0;
 }
